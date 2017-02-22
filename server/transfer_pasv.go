@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/tls"
 	"fmt"
-	"gopkg.in/inconshreveable/log15.v2"
 	"net"
 	"strings"
 	"time"
@@ -30,7 +29,7 @@ func (c *clientHandler) handlePASV() {
 	addr, _ := net.ResolveTCPAddr("tcp", ":0")
 	tcpListener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		log15.Error("Could not listen", "err", err)
+		fmt.Fprintf(c.daddy.debugStream, "Could not listen: %s\n", err)
 		return
 	}
 

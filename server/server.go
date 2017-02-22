@@ -2,9 +2,9 @@
 package server
 
 import (
-	"errors"
 	"fmt"
-	"gopkg.in/inconshreveable/log15.v2"
+	"io"
+	"io/ioutil"
 	"net"
 	"sync"
 	"time"
@@ -69,6 +69,7 @@ type FtpServer struct {
 	connectionsMutex sync.RWMutex              // Connections map sync
 	clientCounter    uint32                    // Clients counter
 	driver           ServerDriver              // Driver to handle the client authentication and the file access driver selection
+	debugStream      io.Writer
 }
 
 func (server *FtpServer) loadSettings() {
@@ -88,7 +89,7 @@ func (server *FtpServer) loadSettings() {
 func (server *FtpServer) ListenAndServe() error {
 	server.loadSettings()
 	var err error
-	log15.Info("Starting...")
+	fmt.Fprintln(server.debugStream, "Starting...")
 
 	server.Listener, err = net.Listen(
 		"tcp",
@@ -96,37 +97,57 @@ func (server *FtpServer) ListenAndServe() error {
 	)
 
 	if err != nil {
-		log15.Error("Cannot listen", "err", err)
 		return err
 	}
 
-	log15.Info("Listening...", "address", server.Listener.Addr())
+	fmt.Fprintf(server.debugStream, "Listening at %s\n", server.Listener.Addr())
 
 	for {
 		connection, err := server.Listener.Accept()
 		if err != nil {
-			log15.Error("Accept error", "err", err)
-			break
-		} else {
-			c := server.NewClientHandler(connection)
-			go c.HandleCommands()
+			fmt.Fprintf(server.debugStream, "Failed to accept connection: %s\n", err)
+			return err
 		}
+
+		c := server.NewClientHandler(connection)
+		go c.HandleCommands()
 	}
-
-	// Note: At this precise time, the clients are still connected. We are just not accepting clients anymore.
-
-	return nil
 }
 
 func NewFtpServer(driver ServerDriver) *FtpServer {
 	return &FtpServer{
 		driver:          driver,
+		debugStream:     ioutil.Discard,
 		StartTime:       time.Now().UTC(), // Might make sense to put it in Start method
 		connectionsById: make(map[uint32]*clientHandler),
 	}
 }
 
+func (server *FtpServer) SetDebugStream(stream io.Writer) {
+	server.debugStream = stream
+}
+
 func (server *FtpServer) Stop() {
+	for {
+		server.connectionsMutex.Lock()
+
+		allClosed := true
+		for _, c := range server.connectionsById {
+			if !c.IsTransferClosed() {
+				allClosed = false
+				break
+			}
+		}
+
+		server.connectionsMutex.Unlock()
+
+		if allClosed {
+			break
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+
 	server.Listener.Close()
 }
 
@@ -138,13 +159,13 @@ func (server *FtpServer) clientArrival(c *clientHandler) error {
 	server.connectionsById[c.Id] = c
 	nb := len(server.connectionsById)
 
-	log15.Info("FTP Client connected", "action", "ftp.connected", "id", c.Id, "src", c.conn.RemoteAddr(), "total", nb)
+	fmt.Fprintf(server.debugStream, "Client connected from %s\n", c.conn.RemoteAddr())
 
 	if nb > server.Settings.MaxConnections {
-		return errors.New(fmt.Sprintf("Too many clients %d > %d", nb, server.Settings.MaxConnections))
-	} else {
-		return nil
+		return fmt.Errorf("Too many clients %d > %d", nb, server.Settings.MaxConnections)
 	}
+
+	return nil
 }
 
 // When a client leaves
@@ -154,5 +175,5 @@ func (server *FtpServer) clientDeparture(c *clientHandler) {
 
 	delete(server.connectionsById, c.Id)
 
-	log15.Info("FTP Client disconnected", "action", "ftp.disconnected", "id", c.Id, "src", c.conn.RemoteAddr(), "total", len(server.connectionsById))
+	fmt.Fprintf(server.debugStream, "Client from %s disconnected\n", c.conn.RemoteAddr())
 }

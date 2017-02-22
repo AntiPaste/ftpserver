@@ -52,6 +52,9 @@ type ClientHandlingDriver interface {
 
 	// CanAllocate gives the approval to allocate some data
 	CanAllocate(cc ClientContext, size int) (bool, error)
+
+	// NotifyWrite is called whenever a file is written
+	NotifyWrite(cc ClientContext, path string) error
 }
 
 // ClientContext is implemented on the server side to provide some access to few data around the client
@@ -59,11 +62,8 @@ type ClientContext interface {
 	// Path provides the path of the current connection
 	Path() string
 
-	// SetDebug activates the debugging of this connection commands
-	SetDebug(debug bool)
-
-	// Debug returns the current debugging status of this connection commands
-	Debug() bool
+	// User returns the authenticated user of the current connection
+	User() string
 }
 
 // FileStream is a read or write closeable stream

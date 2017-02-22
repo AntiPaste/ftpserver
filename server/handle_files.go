@@ -26,6 +26,9 @@ func (c *clientHandler) handleStoreAndAppend(append bool) {
 		if _, err := c.storeOrAppend(tr, path, append); err != nil && err != io.EOF {
 			c.writeMessage(550, err.Error())
 		}
+
+		// Ignore errors
+		c.driver.NotifyWrite(c, path)
 	} else {
 		c.writeMessage(550, err.Error())
 	}

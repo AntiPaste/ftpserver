@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"gopkg.in/inconshreveable/log15.v2"
 	"io"
 	"net"
 	"strings"
@@ -19,13 +18,13 @@ type clientHandler struct {
 	writer      *bufio.Writer        // Writer on the TCP connection
 	reader      *bufio.Reader        // Reader on the TCP connection
 	user        string               // Authenticated user
+	isAuthed    bool                 // Has the user authenticated yet
 	path        string               // Current path
 	command     string               // Command received on the connection
 	param       string               // Param of the FTP command
 	connectedAt time.Time            // Date of connection
 	ctx_rnfr    string               // Rename from
 	ctx_rest    int64                // Restart point
-	debug       bool                 // Show debugging info on the server side
 	transfer    transferHandler      // Transfer connection (only passive is implemented at this stage)
 	transferTls bool                 // Use TLS for transfer connection
 }
@@ -57,16 +56,12 @@ func (c *clientHandler) Path() string {
 	return c.path
 }
 
+func (c *clientHandler) User() string {
+	return c.user
+}
+
 func (c *clientHandler) SetPath(path string) {
 	c.path = path
-}
-
-func (c *clientHandler) Debug() bool {
-	return c.debug
-}
-
-func (c *clientHandler) SetDebug(debug bool) {
-	c.debug = debug
 }
 
 func (c *clientHandler) end() {
@@ -96,9 +91,7 @@ func (c *clientHandler) HandleCommands() {
 
 	for {
 		if c.reader == nil {
-			if c.debug {
-				log15.Debug("Clean disconnect", "action", "ftp.disconnect", "id", c.Id, "clean", true)
-			}
+			fmt.Fprintln(c.daddy.debugStream, "Clean disconnect")
 			return
 		}
 
@@ -106,22 +99,25 @@ func (c *clientHandler) HandleCommands() {
 
 		if err != nil {
 			if err == io.EOF {
-				if c.debug {
-					log15.Debug("TCP disconnect", "action", "ftp.disconnect", "id", c.Id, "clean", false)
-				}
+				fmt.Fprintln(c.daddy.debugStream, "TCP disconnect")
 			} else {
-				log15.Error("Read error", "action", "ftp.read_error", "id", c.Id, "err", err)
+				fmt.Fprintf(c.daddy.debugStream, "Read error: %s\n", err)
 			}
+
 			return
 		}
 
-		if c.debug {
-			log15.Debug("FTP RECV", "action", "ftp.cmd_recv", "id", c.Id, "line", line)
-		}
+		fmt.Fprintf(c.daddy.debugStream, "FTP RECV: %s\n", line)
 
 		command, param := parseLine(line)
 		c.command = strings.ToUpper(command)
 		c.param = param
+
+		// If we are doing anything other than authenticating and we have not authenticated
+		if c.command != "USER" && c.command != "PASS" && !c.isAuthed {
+			c.writeMessage(530, "Please login with USER and PASS")
+			continue
+		}
 
 		fn := commandsMap[c.command]
 		if fn == nil {
@@ -133,9 +129,8 @@ func (c *clientHandler) HandleCommands() {
 }
 
 func (c *clientHandler) writeLine(line string) {
-	if c.debug {
-		log15.Debug("FTP SEND", "action", "ftp.cmd_send", "id", c.Id, "line", line)
-	}
+	fmt.Fprintf(c.daddy.debugStream, "FTP SEND: %s\n", line)
+
 	c.writer.Write([]byte(line))
 	c.writer.Write([]byte("\r\n"))
 	c.writer.Flush()
@@ -149,8 +144,8 @@ func (c *clientHandler) TransferOpen() (net.Conn, error) {
 	if c.transfer != nil {
 		c.writeMessage(150, "Using transfer connection")
 		conn, err := c.transfer.Open()
-		if err == nil && c.debug {
-			log15.Debug("FTP Transfer connection opened", "action", "ftp.transfer_open", "id", c.Id, "remoteAddr", conn.RemoteAddr().String(), "localAddr", conn.LocalAddr().String())
+		if err == nil {
+			fmt.Fprintf(c.daddy.debugStream, "FTP Transfer connection opened to %s\n", conn.RemoteAddr().String())
 		}
 		return conn, err
 	} else {
@@ -164,10 +159,13 @@ func (c *clientHandler) TransferClose() {
 		c.writeMessage(226, "Closing transfer connection")
 		c.transfer.Close()
 		c.transfer = nil
-		if c.debug {
-			log15.Debug("FTP Transfer connection closed", "action", "ftp.transfer_close", "id", c.Id)
-		}
+
+		fmt.Fprintln(c.daddy.debugStream, "FTP Transfer connection closed")
 	}
+}
+
+func (c *clientHandler) IsTransferClosed() bool {
+	return c.transfer == nil
 }
 
 func parseLine(line string) (string, string) {

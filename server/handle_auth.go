@@ -13,6 +13,7 @@ func (p *clientHandler) handlePASS() {
 	var err error
 	if p.driver, err = p.daddy.driver.AuthUser(p, p.user, p.param); err == nil {
 		p.writeMessage(230, "Password ok, continue")
+		p.isAuthed = true
 	} else if err != nil {
 		p.writeMessage(530, fmt.Sprintf("Authentication problem: %v", err))
 		p.disconnect()
