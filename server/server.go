@@ -127,7 +127,7 @@ func (server *FtpServer) SetDebugStream(stream io.Writer) {
 	server.debugStream = stream
 }
 
-func (server *FtpServer) Stop() {
+func (server *FtpServer) Stop() error {
 	for {
 		server.connectionsMutex.Lock()
 
@@ -148,7 +148,7 @@ func (server *FtpServer) Stop() {
 		time.Sleep(1 * time.Second)
 	}
 
-	server.Listener.Close()
+	return server.Listener.Close()
 }
 
 // When a client connects, the server could refuse the connection
