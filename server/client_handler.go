@@ -114,7 +114,7 @@ func (c *clientHandler) HandleCommands() {
 		c.param = param
 
 		// If we are doing anything other than authenticating and we have not authenticated
-		if c.command != "USER" && c.command != "PASS" && !c.isAuthed {
+		if c.command != "USER" && c.command != "PASS" && c.command != "AUTH" && !c.isAuthed {
 			c.writeMessage(530, "Please login with USER and PASS")
 			continue
 		}
