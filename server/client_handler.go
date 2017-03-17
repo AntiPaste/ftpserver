@@ -113,10 +113,24 @@ func (c *clientHandler) HandleCommands() {
 		c.command = strings.ToUpper(command)
 		c.param = param
 
-		// If we are doing anything other than authenticating and we have not authenticated
-		if c.command != "USER" && c.command != "PASS" && c.command != "AUTH" && !c.isAuthed {
-			c.writeMessage(530, "Please login with USER and PASS")
-			continue
+		unauthenticatedCommands := []string{
+			"USER", "PASS", "AUTH",
+			"FEAT", "PROT", "PBSZ", "SYST", "OPTS", "NOOP", "TYPE", "QUIT",
+		}
+
+		if !c.isAuthed {
+			isUnauthenticatedCommand := false
+			for _, command := range unauthenticatedCommands {
+				if c.command == command {
+					isUnauthenticatedCommand = true
+					break
+				}
+			}
+
+			if !isUnauthenticatedCommand {
+				c.writeMessage(530, "Please login with USER and PASS")
+				continue
+			}
 		}
 
 		fn := commandsMap[c.command]
